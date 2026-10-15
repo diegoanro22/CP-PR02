@@ -1,0 +1,27 @@
+# Binarios de C / MPI
+bruteforce
+encrypt_file
+*.o
+*.out
+
+# Resultados de mediciones
+*.csv
+*.log
+
+# Python (scripts de benchmark y gráficas)
+__pycache__/
+*.pyc
+.venv/
+
+# LaTeX
+*.aux
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# Editor / sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
