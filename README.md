@@ -5,6 +5,7 @@ Proyecto 2 de Computación Paralela. Búsqueda por fuerza bruta de la llave priv
 ## Compilar y ejecutar
 
 ```bash
+cd des
 mpicc bruteforce_.c -o bruteforce -I/usr/include/tirpc -ltirpc
 mpirun -np 3 ./bruteforce
 ```
