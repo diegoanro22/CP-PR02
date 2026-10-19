@@ -1,5 +1,5 @@
 /*
- * Modulo DES (Persona A) para CP-PR02.
+ * Modulo DES para CP-PR02.
  * Usa ecb_crypt de libtirpc o una alternativa de OpenSSL cuando libtirpc
  * no implementa las funciones DES. Los dos usan DES en modo ECB.
  */

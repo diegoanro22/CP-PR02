@@ -5,6 +5,11 @@
 #include <unistd.h>
 #include <rpc/des_crypt.h>
 
+// cada cuantas llaves se revisa el aviso de terminacion (compilar con -DTEST_EVERY=K)
+#ifndef TEST_EVERY
+#define TEST_EVERY 1
+#endif
+
 
 
 
@@ -49,7 +54,7 @@ long the_key = 18014398509481984;
 
 int main(int argc, char *argv[]){ 
   int N, id;
-  long upper = (1L <<56); //upper bound DES keys 2^56
+  long upper = (1L <<56); // limite superior de llaves DES: 2^56
   long mylower, myupper;
   MPI_Status st;
   MPI_Request req;
@@ -66,27 +71,37 @@ int main(int argc, char *argv[]){
   MPI_Comm_size(comm, &N);
   MPI_Comm_rank(comm, &id);
 
-  long found = 0;
+  long found = -1;   // llave que encontro este proceso (-1 = ninguna)
+  long received = 0; // buffer exclusivo de MPI_Irecv: no se toca mientras esta pendiente
   int ready = 0;
 
   long range_per_node = upper / N;
   mylower = range_per_node * id;
   myupper = range_per_node * (id+1) -1;
   if(id == N-1){
-    myupper = upper;
+    myupper = upper - 1; // el ultimo bloque llega hasta la ultima llave valida
   }
-  printf("Process %d lower %ld upper %ld\n", id, mylower, myupper);
+  printf("Proceso %d: rango [%ld, %ld]\n", id, mylower, myupper);
 
-  MPI_Irecv(&found, 1, MPI_LONG, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &req);
+  MPI_Irecv(&received, 1, MPI_LONG, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &req);
 
-  for(long i = mylower; i<myupper; ++i){
-    MPI_Test(&req, &ready, MPI_STATUS_IGNORE);
-    if(ready)
-      break;  
+  // todos empiezan a medir al mismo tiempo
+  MPI_Barrier(comm);
+  double start = MPI_Wtime();
+
+  // el aviso de otro proceso se revisa cada TEST_EVERY llaves (1 = en cada llave)
+  long untilTest = 0;
+  for(long i = mylower; i<=myupper; ++i){
+    if(untilTest-- == 0){
+      untilTest = TEST_EVERY - 1;
+      MPI_Test(&req, &ready, MPI_STATUS_IGNORE);
+      if(ready)
+        break;
+    }
 
     if(tryKey(i, cipher, ciphlen)){
       found = i;
-      printf("Process %d found the key\n", id);
+      printf("Proceso %d encontro la llave\n", id);
       for(int node=0; node<N; node++){
         MPI_Send(&found, 1, MPI_LONG, node, 0, comm);
       }
@@ -94,12 +109,32 @@ int main(int argc, char *argv[]){
     }
   }
 
+  // Si la llave no esta en el rango nadie envia el aviso. Con esta reduccion
+  // todos saben si hubo llave y quien la encontro, sin quedarse esperando.
+  struct { long key; int rank; } mine = {found, id}, best;
+  MPI_Allreduce(&mine, &best, 1, MPI_LONG_INT, MPI_MAXLOC, comm);
+  double elapsed = MPI_Wtime() - start;
+
+  if(best.key >= 0){
+    MPI_Wait(&req, MPI_STATUS_IGNORE); // el aviso llega a todos, incluido quien lo envio
+  }else{
+    MPI_Cancel(&req);
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
+  }
+
   if(id==0){
-    MPI_Wait(&req, &st);
-    decrypt(found, cipher, ciphlen);
-    printf("Key = %li\n\n", found);
-    printf("%s\n", cipher);
+    if(best.key >= 0){
+      decrypt(best.key, cipher, ciphlen);
+      printf("Llave = %ld\n\n", best.key);
+      printf("%s\n", cipher);
+    }else{
+      printf("No se encontro la llave en [0, %ld)\n", upper);
+      best.rank = -1;
+    }
+    // linea para bench.py: N, llave, proceso que la encontro, segundos
+    printf("RESULTADO,%d,%ld,%d,%.6f\n", N, best.key, best.rank, elapsed);
   }
 
   MPI_Finalize();
+  return 0;
 }

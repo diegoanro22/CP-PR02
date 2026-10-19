@@ -1,4 +1,4 @@
-/* Pruebas para la Persona A. No requiere MPI. */
+/* Pruebas del modulo DES. No requiere MPI. */
 #include "des_crypto.h"
 
 #include <assert.h>

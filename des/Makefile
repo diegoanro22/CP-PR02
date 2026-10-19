@@ -1,4 +1,4 @@
-# Makefile de la Persona A. No altera el Makefile general del equipo.
+# Makefile del modulo DES.
 CC = gcc
 # Seleccion automatica: si libtirpc no implementa ecb_crypt, usa OpenSSL.
 # Tambien se puede forzar: make BACKEND=openssl (o BACKEND=tirpc).

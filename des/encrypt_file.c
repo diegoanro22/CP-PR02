@@ -1,5 +1,5 @@
 /*
- * Programa auxiliar (Persona A): cifra un archivo de texto de 335 a 365
+ * Programa auxiliar: cifra un archivo de texto de 335 a 365
  * palabras mediante DES/ECB con padding PKCS#7 y genera un archivo BINARIO.
  *
  * Uso: ./encrypt_file texto_350.txt 123456 texto_cifrado.des
