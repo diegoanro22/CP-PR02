@@ -25,3 +25,7 @@ __pycache__/
 .idea/
 *.swp
 .DS_Store
+
+# Archivos
+PLAN.md
+README_ENCRYPT.md
