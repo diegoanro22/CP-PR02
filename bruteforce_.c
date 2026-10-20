@@ -6,32 +6,22 @@
 #include <mpi.h>
 #include "des_crypto.h"
 
-// cada cuantas llaves se revisa el aviso de terminacion (compilar con -DTEST_EVERY=K)
+// cada cuantas llaves se revisa el aviso de los demas procesos
 #ifndef TEST_EVERY
 #define TEST_EVERY 1
 #endif
 
-// encrypt y decrypt ahora vienen de des/des_crypto.c: cifran el buffer completo
-// (no solo 16 bytes) y arman la llave de 56 bits sin overflow.
-
-
-
-
-// frase clave y buffer de trabajo de tryKey (se reserva una sola vez en main)
+// frase clave y buffer de trabajo de tryKey
 char *search = NULL;
 char *temp = NULL;
 
 int tryKey(long key, char *ciph, int len){
   memcpy(temp, ciph, len);
-  temp[len] = 0; // terminador despues de los datos para que strstr no se salga
+  temp[len] = 0;
   decrypt(key, temp, len);
   if(strstr(temp, search) == NULL)
     return 0;
-  // con una frase corta una llave incorrecta puede contenerla por casualidad.
-  // Se descartan esos falsos positivos (solo se revisa si hubo match):
-  //  - el padding PKCS#7 debe ser valido
-  //  - el texto plano no tiene bytes nulos (encrypt_file lo exige), asi que
-  //    strlen debe llegar hasta el final del buffer
+  // descarta falsos positivos: el padding debe ser valido y no debe haber bytes nulos
   size_t plain_len;
   return des_pkcs7_unpad((unsigned char *)temp, len, &plain_len) == 0
       && strlen(temp) == (size_t)len;
@@ -48,7 +38,7 @@ static int parse_long(const char *s, long min, long max, long *out){
   return 0;
 }
 
-// lee el binario completo creado por des/encrypt_file; devuelve su longitud o -1
+// devuelve la longitud del cifrado o -1
 static int read_cipher(const char *path, char **out){
   FILE *f = fopen(path, "rb");
   if(f == NULL){
@@ -103,8 +93,7 @@ int main(int argc, char *argv[]){
   }
   search = argv[2];
 
-  // solo el proceso 0 lee el archivo y lo reparte: asi funciona aunque las
-  // maquinas del cluster no compartan sistema de archivos
+  // el proceso 0 lee el archivo y lo reparte a los demas
   char *cipher = NULL;
   int ciphlen = 0;
   if(id == 0)
@@ -124,7 +113,7 @@ int main(int argc, char *argv[]){
   MPI_Bcast(cipher, ciphlen, MPI_CHAR, 0, comm);
 
   long found = -1;   // llave que encontro este proceso (-1 = ninguna)
-  long received = 0; // buffer exclusivo de MPI_Irecv: no se toca mientras esta pendiente
+  long received = 0;
   int ready = 0;
 
   if(interleaved){
@@ -138,7 +127,7 @@ int main(int argc, char *argv[]){
     mylower = range_per_node * id;
     myupper = range_per_node * (id+1) -1;
     if(id == N-1){
-      myupper = upper - 1; // el ultimo bloque llega hasta la ultima llave valida
+      myupper = upper - 1;
     }
     step = 1;
   }
@@ -146,11 +135,9 @@ int main(int argc, char *argv[]){
 
   MPI_Irecv(&received, 1, MPI_LONG, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &req);
 
-  // todos empiezan a medir al mismo tiempo
   MPI_Barrier(comm);
   double start = MPI_Wtime();
 
-  // el aviso de otro proceso se revisa cada TEST_EVERY llaves (1 = en cada llave)
   long untilTest = 0;
   for(long i = mylower; i<=myupper; i += step){
     if(untilTest-- == 0){
@@ -170,14 +157,13 @@ int main(int argc, char *argv[]){
     }
   }
 
-  // Si la llave no esta en el rango nadie envia el aviso. Con esta reduccion
-  // todos saben si hubo llave y quien la encontro, sin quedarse esperando.
+  // si nadie encontro la llave no llega ningun aviso
   struct { long key; int rank; } mine = {found, id}, best;
   MPI_Allreduce(&mine, &best, 1, MPI_LONG_INT, MPI_MAXLOC, comm);
   double elapsed = MPI_Wtime() - start;
 
   if(best.key >= 0){
-    MPI_Wait(&req, MPI_STATUS_IGNORE); // el aviso llega a todos, incluido quien lo envio
+    MPI_Wait(&req, MPI_STATUS_IGNORE);
   }else{
     MPI_Cancel(&req);
     MPI_Wait(&req, MPI_STATUS_IGNORE);
@@ -187,7 +173,7 @@ int main(int argc, char *argv[]){
     if(best.key >= 0){
       decrypt(best.key, cipher, ciphlen);
       size_t plain_len = ciphlen;
-      des_pkcs7_unpad((unsigned char *)cipher, ciphlen, &plain_len); // quita el padding si es valido
+      des_pkcs7_unpad((unsigned char *)cipher, ciphlen, &plain_len);
       printf("Llave = %ld\n\n", best.key);
       fwrite(cipher, 1, plain_len, stdout);
       printf("\n");
@@ -195,7 +181,7 @@ int main(int argc, char *argv[]){
       printf("No se encontro la llave en [0, %ld)\n", upper);
       best.rank = -1;
     }
-    // linea para bench.py: N, llave, proceso que la encontro, segundos
+    // N, llave, proceso, segundos (la lee bench.py)
     printf("RESULTADO,%d,%ld,%d,%.6f\n", N, best.key, best.rank, elapsed);
   }
 

@@ -1,6 +1,4 @@
-# Compila el buscador MPI junto con el modulo DES de des/.
-# Igual que des/Makefile: usa libtirpc si implementa ecb_crypt, si no OpenSSL.
-# Se puede forzar: make BACKEND=openssl (o BACKEND=tirpc). TEST_EVERY=K tambien.
+# Usa libtirpc si implementa ecb_crypt, si no OpenSSL. Se puede forzar con BACKEND=openssl|tirpc.
 MPICC = mpicc
 TIRPC_DES_OK := $(shell printf '%s\n' '#include <rpc/des_crypt.h>' 'int main(void) { char k[8]={0}, b[8]={0}; des_setparity(k); return ecb_crypt(k,b,8,DES_ENCRYPT|DES_SW); }' | $(CC) -x c - -o /dev/null -I/usr/include/tirpc -ltirpc >/dev/null 2>&1 && echo si || echo no)
 BACKEND ?= $(if $(filter si,$(TIRPC_DES_OK)),tirpc,openssl)

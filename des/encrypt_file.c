@@ -1,9 +1,4 @@
-/*
- * Programa auxiliar: cifra un archivo de texto de 335 a 365
- * palabras mediante DES/ECB con padding PKCS#7 y genera un archivo BINARIO.
- *
- * Uso: ./encrypt_file texto_350.txt 123456 texto_cifrado.des
- */
+/* Uso: ./encrypt_file texto_350.txt 123456 texto_cifrado.des */
 #include "des_crypto.h"
 
 #include <ctype.h>
@@ -74,7 +69,7 @@ static int read_file(const char *path, unsigned char **out, size_t *size) {
     return 0;
 }
 
-/* Se considera palabra cada token separado por espacios, tabs o saltos. */
+/* palabras separadas por espacios, tabs o saltos de linea */
 static size_t word_count(const unsigned char *data, size_t len) {
     size_t words = 0;
     int inside_word = 0;

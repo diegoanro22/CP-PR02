@@ -66,8 +66,6 @@ def main():
         ciphers = {k: encrypt(args, k, tmp) for k in args.keys}
         total = args.reps * len(args.keys) * len(args.procs)
         done = 0
-        # Las repeticiones van por fuera para repartir entre todos los casos
-        # los cambios de carga o temperatura de la maquina.
         for rep in range(1, args.reps + 1):
             for key in args.keys:
                 for n in args.procs:

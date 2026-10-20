@@ -4,42 +4,26 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* DES utiliza una llave efectiva de 56 bits y bloques de 8 bytes. */
 #define DES_BLOCK_BYTES 8U
 #define DES_EFFECTIVE_KEY_BITS 56U
 #define DES_EFFECTIVE_KEY_COUNT (UINT64_C(1) << DES_EFFECTIVE_KEY_BITS)
 
-/*
- * Convierte una llave de 56 bits representada como long decimal en los ocho
- * bytes que consume DES. Cada byte tiene siete bits de llave y un bit de
- * paridad impar. Es una correspondencia biyectiva en [0, 2^56).
- * Retorno: 0 = exito, -1 = llave o puntero invalido.
- */
+/* Convierte una llave de 56 bits a los 8 bytes de DES. Devuelve 0 o -1. */
 int des_key_to_bytes(long key, unsigned char out[DES_BLOCK_BYTES]);
 
-/*
- * Ambas funciones trabajan IN PLACE sobre EXACTAMENTE len bytes.
- * PRECONDICION: len > 0 y multiplo de 8; no agregan ni retiran padding.
- * Se conserva la firma acordada por el equipo. Ante un uso invalido o un
- * fallo de la biblioteca criptografica, terminan con un error explicito.
- */
+/* Cifran o descifran len bytes en el mismo buffer; len debe ser multiplo de 8. */
 void encrypt(long key, char *buf, int len);
 void decrypt(long key, char *buf, int len);
 
-/* Alternativas que devuelven codigo de error, sin abortar el proceso. */
+/* Igual que las anteriores, pero devuelven un codigo de error en vez de abortar. */
 int des_encrypt_checked(long key, char *buf, int len);
 int des_decrypt_checked(long key, char *buf, int len);
 
-/*
- * PKCS#7, con bloque de 8 bytes. Aun cuando la longitud ya es multiplo
- * de ocho, se agrega un bloque completo de padding (0x08 repetido).
- * des_pkcs7_pad reserva memoria: el llamador debe usar free(*output).
- * Retorno: 0 = exito, -1 = argumentos/longitud invalidos, -2 = sin memoria.
- */
+/* Padding PKCS#7 de 8 bytes. *output se libera con free. Devuelve 0, -1 o -2 (sin memoria). */
 int des_pkcs7_pad(const unsigned char *input, size_t input_len,
                   unsigned char **output, size_t *padded_len);
 
-/* Valida PKCS#7 y devuelve la cantidad de bytes reales del mensaje. */
+/* Valida el padding y devuelve en message_len la longitud sin padding. */
 int des_pkcs7_unpad(const unsigned char *input, size_t padded_len,
                     size_t *message_len);
 

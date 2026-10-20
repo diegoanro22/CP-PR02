@@ -1,7 +1,5 @@
-# Makefile del modulo DES.
 CC = gcc
-# Seleccion automatica: si libtirpc no implementa ecb_crypt, usa OpenSSL.
-# Tambien se puede forzar: make BACKEND=openssl (o BACKEND=tirpc).
+# Usa libtirpc si implementa ecb_crypt, si no OpenSSL. Se puede forzar con BACKEND=openssl|tirpc.
 TIRPC_DES_OK := $(shell printf '%s\n' '#include <rpc/des_crypt.h>' 'int main(void) { char k[8]={0}, b[8]={0}; des_setparity(k); return ecb_crypt(k,b,8,DES_ENCRYPT|DES_SW); }' | $(CC) -x c - -o /dev/null -I/usr/include/tirpc -ltirpc >/dev/null 2>&1 && echo si || echo no)
 BACKEND ?= $(if $(filter si,$(TIRPC_DES_OK)),tirpc,openssl)
 CFLAGS = -std=c11 -O2 -Wall -Wextra -Wpedantic

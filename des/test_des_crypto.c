@@ -1,4 +1,4 @@
-/* Pruebas del modulo DES. No requiere MPI. */
+/* Pruebas del modulo DES */
 #include "des_crypto.h"
 
 #include <assert.h>
@@ -83,7 +83,7 @@ static void test_roundtrip(void) {
 }
 
 static void test_search_phrase(void) {
-    /* Prueba explicita del bug del original: el texto NO debe quedar en claro. */
+    /* con la llave incorrecta la frase no debe aparecer */
     const char message[] =
         "Este mensaje contiene los mismos del proyecto 1 para nuestra prueba.";
     const char search[] = " los mismos del proyecto 1 ";

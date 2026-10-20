@@ -1,8 +1,4 @@
-/*
- * Descifra el binario creado por encrypt_file,
- * verifica el padding PKCS#7 y reconstruye exactamente el texto original.
- * Uso: ./decrypt_file texto_cifrado.des 123456 texto_restaurado.txt
- */
+/* Uso: ./decrypt_file texto_cifrado.des 123456 texto_restaurado.txt */
 #include "des_crypto.h"
 
 #include <errno.h>
