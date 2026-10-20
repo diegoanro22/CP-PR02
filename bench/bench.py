@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Mide el tiempo de bruteforce con varias llaves y numeros de procesos.
+"""Mide el tiempo de bruteforce con varias llaves, repartos y numeros de procesos.
 
 Cifra el texto con cada llave, corre cada caso varias veces y guarda:
   - crudo.csv:   una fila por ejecucion
-  - resumen.csv: promedio, desviacion, speedup y eficiencia por (llave, N)
+  - resumen.csv: promedio, desviacion, speedup y eficiencia por (llave, modo, N)
+
+El speedup de cada modo se calcula contra su propio N=1.
 
 Se corre en Linux/WSL desde la raiz del repo, por ejemplo:
   python3 bench/bench.py --upper 1048576 --keys 123456 524289 --procs 1 2 3 4 --reps 5
+  python3 bench/bench.py --upper 1048576 --keys 524289 --modos bloques intercalado
 """
 import argparse
 import csv
@@ -27,6 +30,8 @@ def parse_args():
     p.add_argument("--upper", type=int, required=True, help="se buscan llaves en [0, upper)")
     p.add_argument("--keys", type=int, nargs="+", required=True, help="llaves a probar")
     p.add_argument("--procs", type=int, nargs="+", default=[1, 2, 3, 4], help="valores de N")
+    p.add_argument("--modos", nargs="+", default=["bloques"], choices=["bloques", "intercalado"],
+                   help="tipos de reparto del espacio de llaves")
     p.add_argument("--reps", type=int, default=5, help="repeticiones por caso")
     p.add_argument("--out", default="bench/resultados", help="carpeta de salida")
     p.add_argument("--timeout", type=int, default=3600, help="segundos maximos por ejecucion")
@@ -41,9 +46,9 @@ def encrypt(args, key, folder):
     return path
 
 
-def run_once(args, n, cipher_path):
+def run_once(args, n, modo, cipher_path):
     cmd = ["mpirun", "-np", str(n), *args.mpirun_args.split(),
-           args.bin, cipher_path, args.phrase, str(args.upper)]
+           args.bin, cipher_path, args.phrase, str(args.upper), modo]
     out = subprocess.run(cmd, capture_output=True, text=True,
                          timeout=args.timeout, check=True).stdout
     # RESULTADO,N,llave,proceso,segundos
@@ -64,43 +69,46 @@ def main():
     raw = []
     with tempfile.TemporaryDirectory() as tmp:
         ciphers = {k: encrypt(args, k, tmp) for k in args.keys}
-        total = args.reps * len(args.keys) * len(args.procs)
+        total = args.reps * len(args.keys) * len(args.modos) * len(args.procs)
         done = 0
         for rep in range(1, args.reps + 1):
             for key in args.keys:
-                for n in args.procs:
-                    done += 1
-                    _, found, rank, secs = run_once(args, n, ciphers[key])
-                    if found != key:
-                        sys.exit(f"Error: llave={key} N={n} encontro {found}")
-                    raw.append({"llave": key, "n": n, "rep": rep,
-                                "proceso": rank, "segundos": secs})
-                    print(f"[{done}/{total}] llave={key} N={n} rep={rep} "
-                          f"proceso={rank} {secs:.3f}s", flush=True)
+                for modo in args.modos:
+                    for n in args.procs:
+                        done += 1
+                        _, found, rank, secs = run_once(args, n, modo, ciphers[key])
+                        if found != key:
+                            sys.exit(f"Error: llave={key} modo={modo} N={n} encontro {found}")
+                        raw.append({"llave": key, "modo": modo, "n": n, "rep": rep,
+                                    "proceso": rank, "segundos": secs})
+                        print(f"[{done}/{total}] llave={key} modo={modo} N={n} rep={rep} "
+                              f"proceso={rank} {secs:.3f}s", flush=True)
 
     with open(os.path.join(args.out, "crudo.csv"), "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["llave", "n", "rep", "proceso", "segundos"])
+        w = csv.DictWriter(f, fieldnames=["llave", "modo", "n", "rep", "proceso", "segundos"])
         w.writeheader()
         w.writerows(raw)
 
     summary = []
     for key in args.keys:
-        t1 = None
-        for n in sorted(args.procs):
-            times = [r["segundos"] for r in raw if r["llave"] == key and r["n"] == n]
-            mean = statistics.mean(times)
-            if n == 1:
-                t1 = mean
-            speedup = t1 / mean if t1 is not None else ""
-            summary.append({
-                "llave": key, "n": n, "reps": len(times),
-                "promedio": f"{mean:.6f}",
-                "desviacion": f"{statistics.stdev(times):.6f}" if len(times) > 1 else "0",
-                "minimo": f"{min(times):.6f}", "maximo": f"{max(times):.6f}",
-                "speedup": f"{speedup:.4f}" if speedup != "" else "",
-                "eficiencia": f"{speedup / n:.4f}" if speedup != "" else "",
-                "proceso": next(r["proceso"] for r in raw if r["llave"] == key and r["n"] == n),
-            })
+        for modo in args.modos:
+            t1 = None
+            for n in sorted(args.procs):
+                rows = [r for r in raw if r["llave"] == key and r["modo"] == modo and r["n"] == n]
+                times = [r["segundos"] for r in rows]
+                mean = statistics.mean(times)
+                if n == 1:
+                    t1 = mean
+                speedup = t1 / mean if t1 is not None else ""
+                summary.append({
+                    "llave": key, "modo": modo, "n": n, "reps": len(times),
+                    "promedio": f"{mean:.6f}",
+                    "desviacion": f"{statistics.stdev(times):.6f}" if len(times) > 1 else "0",
+                    "minimo": f"{min(times):.6f}", "maximo": f"{max(times):.6f}",
+                    "speedup": f"{speedup:.4f}" if speedup != "" else "",
+                    "eficiencia": f"{speedup / n:.4f}" if speedup != "" else "",
+                    "proceso": rows[0]["proceso"],
+                })
 
     with open(os.path.join(args.out, "resumen.csv"), "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(summary[0].keys()))

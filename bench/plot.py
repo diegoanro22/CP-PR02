@@ -13,19 +13,26 @@ import matplotlib.pyplot as plt
 
 def main():
     folder = sys.argv[1] if len(sys.argv) > 1 else "bench/resultados"
-    by_key = defaultdict(list)
+    series = defaultdict(list)  # (llave, modo) -> filas
     with open(os.path.join(folder, "resumen.csv"), newline="") as f:
         for row in csv.DictReader(f):
-            by_key[int(row["llave"])].append(row)
-    all_n = sorted({int(r["n"]) for rows in by_key.values() for r in rows})
+            series[(int(row["llave"]), row["modo"])].append(row)
+    all_n = sorted({int(r["n"]) for rows in series.values() for r in rows})
+    several_modes = len({modo for _, modo in series}) > 1
+
+    def label(key, modo):
+        return f"llave {key} ({modo})" if several_modes else f"llave {key}"
+
+    def style(modo):
+        return "--" if modo == "intercalado" else "-"
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    for key, rows in by_key.items():
+    for (key, modo), rows in series.items():
         rows.sort(key=lambda r: int(r["n"]))
         ax.errorbar([int(r["n"]) for r in rows],
                     [float(r["promedio"]) for r in rows],
                     yerr=[float(r["desviacion"]) for r in rows],
-                    marker="o", capsize=3, label=f"llave {key}")
+                    marker="o", capsize=3, linestyle=style(modo), label=label(key, modo))
     ax.set_xticks(all_n)
     ax.set_xlabel("Procesos (N)")
     ax.set_ylabel("Tiempo promedio (s)")
@@ -37,18 +44,19 @@ def main():
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
     max_n = 1
-    for key, rows in by_key.items():
+    for (key, modo), rows in series.items():
         rows = [r for r in rows if r["speedup"]]
         if not rows:
             continue
         ns = [int(r["n"]) for r in rows]
         max_n = max(max_n, *ns)
-        ax.plot(ns, [float(r["speedup"]) for r in rows], marker="o", label=f"llave {key}")
-    ax.plot([1, max_n], [1, max_n], "k--", alpha=0.5, label="ideal (S = N)")
+        ax.plot(ns, [float(r["speedup"]) for r in rows], marker="o",
+                linestyle=style(modo), label=label(key, modo))
+    ax.plot([1, max_n], [1, max_n], "k:", alpha=0.5, label="ideal (S = N)")
     ax.set_xticks(all_n)
     ax.set_xlabel("Procesos (N)")
     ax.set_ylabel("Speedup S = T1 / TN")
-    ax.set_title("Speedup segun la llave")
+    ax.set_title("Speedup segun la llave y el reparto" if several_modes else "Speedup segun la llave")
     ax.set_yscale("log")
     ax.grid(alpha=0.3, which="both")
     ax.legend()
