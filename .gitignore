@@ -1,8 +1,14 @@
 # Binarios de C / MPI
 bruteforce
 encrypt_file
+decrypt_file
+test_des_crypto
 *.o
 *.out
+
+# Archivos generados al cifrar y descifrar
+*.des
+*_restaurado.txt
 
 # Resultados de mediciones
 *.csv
