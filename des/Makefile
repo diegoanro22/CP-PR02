@@ -9,6 +9,11 @@ LDLIBS = -ltirpc
 else ifeq ($(BACKEND),openssl)
 CFLAGS += -DDES_USE_OPENSSL -Wno-deprecated-declarations
 LDLIBS = -lcrypto
+# macOS (Homebrew): make OPENSSL_PREFIX=$(brew --prefix openssl@3)
+ifneq ($(OPENSSL_PREFIX),)
+CFLAGS += -I$(OPENSSL_PREFIX)/include
+LDLIBS = -L$(OPENSSL_PREFIX)/lib -lcrypto
+endif
 else
 $(error BACKEND invalido: solo tirpc u openssl)
 endif
