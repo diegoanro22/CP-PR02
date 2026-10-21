@@ -1,20 +1,121 @@
-# CP-PR02: Brute-force de DES con OpenMPI
+# CP-PR02: búsqueda exhaustiva de llaves DES con OpenMPI
 
-Proyecto 2 de Computación Paralela. Búsqueda por fuerza bruta de la llave privada DES de un texto cifrado, distribuyendo el espacio de llaves entre procesos con OpenMPI.
+Proyecto 2 de Computación Paralela (Universidad del Valle de Guatemala). Dado un texto cifrado con DES, el programa prueba llaves hasta que una descifra el texto, que se reconoce porque contiene una frase clave. El espacio de llaves se reparte entre procesos con OpenMPI, y las mediciones analizan cómo cambia el speedup según la llave y el tipo de reparto.
 
-## Compilar y ejecutar
+## Contenido
+
+| Ruta | Qué contiene |
+|---|---|
+| `bruteforce_.c` | Programa MPI: reparto de llaves, `tryKey`, aviso de terminación y cronómetro |
+| `Makefile` | Compila `bruteforce` y las utilidades de `des/` |
+| `des/` | Módulo de cifrado DES (`des_crypto.c`), utilidades `encrypt_file` y `decrypt_file`, pruebas y el texto de 350 palabras |
+| `bench/` | `bench.py` (mediciones), `plot.py` (gráficas) y `resultados/` (datos y gráficas de las mediciones) |
+| `docs/diagramas/` | Diagramas de `tryKey`, `memcpy`, `strstr`, reparto de llaves y flujo MPI |
+
+## 1. Preparar el entorno
+
+El proyecto usa C con OpenMPI y OpenSSL. Funciona en Linux; en Windows se usa WSL y en macOS hay que indicar dónde está OpenSSL.
+
+### Linux (Ubuntu o Debian)
 
 ```bash
-make                       # compila bruteforce y las utilidades de des/
-des/encrypt_file des/texto_350_palabras.txt 70000 cifrado.des
-mpirun -np 3 ./bruteforce cifrado.des " los mismos del proyecto 1 " 120000
+sudo apt update
+sudo apt install build-essential make openmpi-bin libopenmpi-dev libssl-dev python3 python3-matplotlib
 ```
 
-Argumentos de `bruteforce`: `<cifrado.des> <frase> <upper> [bloques|intercalado]`
+`libtirpc-dev` no es necesario: el `Makefile` usa `ecb_crypt` de libtirpc si está disponible y, si no, la interfaz DES de OpenSSL. Ambos dan el mismo resultado.
 
-- Busca llaves en `[0, upper)`, con `upper` hasta 2^56.
+### Windows (con WSL 2, recomendado)
+
+1. En PowerShell como administrador: `wsl --install -d Ubuntu`, y reiniciar.
+2. Abrir la terminal de Ubuntu e instalar los paquetes de la sección de Linux.
+3. Clonar el repositorio **dentro del sistema de archivos de Linux** (por ejemplo en `~`), no en `/mnt/c/...`. Es más rápido y evita que Git convierta los finales de línea a CRLF (con CRLF el texto de prueba mide 2 500 bytes en lugar de 2 489).
+
+Windows nativo (MinGW o MS-MPI) no está soportado.
+
+### macOS (no probado)
+
+```bash
+brew install open-mpi openssl@3 python matplotlib
+make OPENSSL_PREFIX=$(brew --prefix openssl@3)
+```
+
+Este camino **no se ha probado en macOS**. Se espera que funcione porque el código solo usa OpenSSL, OpenMPI y la biblioteca estándar de C, pero si falla se recomienda usar Linux o WSL. En los comandos de las secciones siguientes, agregar `OPENSSL_PREFIX=...` a cada `make`.
+
+### Comprobar la instalación
+
+```bash
+mpicc --showme:version
+```
+
+Debe responder `Open MPI ...`. (En algunas instalaciones de Ubuntu `mpirun --version` falla por archivos de ayuda ausentes aunque OpenMPI funcione bien; no es un error del proyecto.)
+
+## 2. Compilar
+
+```bash
+make
+```
+
+Compila `bruteforce` y, en `des/`, `encrypt_file`, `decrypt_file` y `test_des_crypto`. Opciones:
+
+- `make BACKEND=openssl` o `make BACKEND=tirpc` fuerza el backend DES (por defecto se elige el disponible).
+- `make TEST_EVERY=K` revisa el aviso de terminación cada K llaves (por defecto 1).
+- `make clean` borra los ejecutables.
+
+## 3. Cifrar un texto y buscar la llave
+
+```bash
+des/encrypt_file des/texto_350_palabras.txt 70000 cifrado.des
+mpirun -np 3 ./bruteforce cifrado.des " los mismos del proyecto 1 " 120000
+mpirun -np 3 ./bruteforce cifrado.des " los mismos del proyecto 1 " 120000 intercalado
+```
+
+`encrypt_file` recibe el texto (de 335 a 365 palabras), la llave y el archivo de salida. Genera un archivo binario con padding PKCS#7; no guarda la llave ni la frase.
+
+`bruteforce` recibe: `<cifrado.des> <frase> <upper> [bloques|intercalado]`
+
+- Busca llaves en `[0, upper)`, con `1 <= upper <= 2^56`. La llave usada para cifrar debe ser menor que `upper`.
 - `bloques` (por defecto): cada proceso recorre un bloque contiguo del rango.
 - `intercalado`: el proceso `id` prueba `id, id+N, id+2N, ...`.
-- `make TEST_EVERY=K` revisa el aviso de terminación cada K llaves.
+- La última línea de la salida, `RESULTADO,N,llave,proceso,segundos`, es la que lee `bench/bench.py`. Si la llave no está en el rango, la llave del resultado es `-1`.
 
-La última línea de salida, `RESULTADO,N,llave,proceso,segundos`, es la que usa `bench/bench.py`.
+Para comprobar el cifrado, `des/decrypt_file cifrado.des 70000 texto_restaurado.txt` reconstruye el texto original (se puede comparar con `cmp des/texto_350_palabras.txt texto_restaurado.txt`).
+
+Recorrer las 2^56 llaves es inviable (años de cómputo): por eso se limita la búsqueda con `upper`. En el equipo de las mediciones, un proceso prueba unas 57 000 llaves por segundo.
+
+## 4. Pruebas
+
+```bash
+make -C des test
+```
+
+Comprueba la conversión de la llave, un vector de prueba oficial de DES, el padding PKCS#7, el cifrado y descifrado de textos largos y el manejo de errores.
+
+## 5. Reproducir las mediciones
+
+Desde la raíz del repositorio, con todo compilado (`make`):
+
+```bash
+python3 bench/bench.py --upper 4194304 --keys 123456 2097151 2097153 4194303 \
+        --procs 1 2 3 4 --modos bloques intercalado --reps 5 --out bench/resultados/principal
+python3 bench/plot.py bench/resultados/principal
+```
+
+La primera tanda dura cerca de una hora. Con `--reanudar` se continúa una tanda interrumpida sin repetir lo ya medido. Una prueba rápida (menos de un minuto):
+
+```bash
+python3 bench/bench.py --upper 65536 --keys 30000 32769 --procs 1 2 3 \
+        --modos bloques intercalado --reps 2 --out /tmp/prueba
+```
+
+`bench.py` no necesita matplotlib; `plot.py` sí. Los datos y gráficas de las mediciones del informe están en `bench/resultados/`.
+
+## 6. Problemas frecuentes
+
+| Mensaje | Causa y solución |
+|---|---|
+| `mpicc: command not found` | Falta OpenMPI. Instalar `openmpi-bin` y `libopenmpi-dev` (o `open-mpi` con Homebrew). |
+| `openssl/des.h: No such file or directory` o `cannot find -lcrypto` | Falta OpenSSL. En Linux, `libssl-dev`; en macOS, usar `OPENSSL_PREFIX` como en la sección 1. |
+| `rpc/des_crypt.h: No such file or directory` | Es el error del `bruteforce_.c` original, que dependía de libtirpc. El programa actual usa `des/des_crypto.c` y no tiene ese problema. |
+| `There are not enough slots available` | Se pidieron más procesos que núcleos. Agregar `--oversubscribe`: `mpirun --oversubscribe -np 8 ./bruteforce ...` |
+| `mpirun has detected an attempt to run as root` | Ejecutar con un usuario normal o agregar `--allow-run-as-root` (por ejemplo, dentro de Docker). |
