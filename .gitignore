@@ -6,6 +6,7 @@ encrypt_file
 
 # Resultados de mediciones
 *.csv
+!bench/resultados/**/*.csv
 *.log
 
 # Python (scripts de benchmark y gráficas)

@@ -2,10 +2,11 @@
 """Mide el tiempo de bruteforce con varias llaves, repartos y numeros de procesos.
 
 Cifra el texto con cada llave, corre cada caso varias veces y guarda:
-  - crudo.csv:   una fila por ejecucion
+  - crudo.csv:   una fila por ejecucion (se escribe al terminar cada una)
   - resumen.csv: promedio, desviacion, speedup y eficiencia por (llave, modo, N)
 
 El speedup de cada modo se calcula contra su propio N=1.
+Con --reanudar se conserva el crudo.csv existente y solo se corre lo que falta.
 
 Se corre en Linux/WSL desde la raiz del repo, por ejemplo:
   python3 bench/bench.py --upper 1048576 --keys 123456 524289 --procs 1 2 3 4 --reps 5
@@ -18,6 +19,8 @@ import statistics
 import subprocess
 import sys
 import tempfile
+
+CAMPOS = ["llave", "modo", "n", "rep", "proceso", "segundos"]
 
 
 def parse_args():
@@ -34,6 +37,8 @@ def parse_args():
                    help="tipos de reparto del espacio de llaves")
     p.add_argument("--reps", type=int, default=5, help="repeticiones por caso")
     p.add_argument("--out", default="bench/resultados", help="carpeta de salida")
+    p.add_argument("--reanudar", action="store_true",
+                   help="conserva el crudo.csv de --out y corre solo las ejecuciones que faltan")
     p.add_argument("--timeout", type=int, default=3600, help="segundos maximos por ejecucion")
     p.add_argument("--mpirun-args", default="", help='opciones extra para mpirun, ej. "--oversubscribe"')
     return p.parse_args()
@@ -59,6 +64,13 @@ def run_once(args, n, modo, cipher_path):
     raise RuntimeError("bruteforce no imprimio la linea RESULTADO:\n" + out)
 
 
+def load_raw(path):
+    with open(path, newline="") as f:
+        return [{"llave": int(r["llave"]), "modo": r["modo"], "n": int(r["n"]),
+                 "rep": int(r["rep"]), "proceso": int(r["proceso"]),
+                 "segundos": float(r["segundos"])} for r in csv.DictReader(f)]
+
+
 def main():
     args = parse_args()
     bad = [k for k in args.keys if not 0 <= k < args.upper]
@@ -66,28 +78,39 @@ def main():
         sys.exit(f"Llaves fuera de [0, {args.upper}): {bad}")
     os.makedirs(args.out, exist_ok=True)
 
+    crudo = os.path.join(args.out, "crudo.csv")
     raw = []
-    with tempfile.TemporaryDirectory() as tmp:
+    if args.reanudar and os.path.exists(crudo):
+        raw = load_raw(crudo)
+        print(f"Se reanuda con {len(raw)} ejecuciones ya medidas en {crudo}")
+    else:
+        with open(crudo, "w", newline="") as f:
+            csv.DictWriter(f, fieldnames=CAMPOS).writeheader()
+    hechas = {(r["llave"], r["modo"], r["n"], r["rep"]) for r in raw}
+
+    total = args.reps * len(args.keys) * len(args.modos) * len(args.procs)
+    pendientes = total - len(hechas)
+    done = 0
+    with tempfile.TemporaryDirectory() as tmp, open(crudo, "a", newline="") as fcrudo:
         ciphers = {k: encrypt(args, k, tmp) for k in args.keys}
-        total = args.reps * len(args.keys) * len(args.modos) * len(args.procs)
-        done = 0
+        writer = csv.DictWriter(fcrudo, fieldnames=CAMPOS)
         for rep in range(1, args.reps + 1):
             for key in args.keys:
                 for modo in args.modos:
                     for n in args.procs:
+                        if (key, modo, n, rep) in hechas:
+                            continue
                         done += 1
                         _, found, rank, secs = run_once(args, n, modo, ciphers[key])
                         if found != key:
                             sys.exit(f"Error: llave={key} modo={modo} N={n} encontro {found}")
-                        raw.append({"llave": key, "modo": modo, "n": n, "rep": rep,
-                                    "proceso": rank, "segundos": secs})
-                        print(f"[{done}/{total}] llave={key} modo={modo} N={n} rep={rep} "
+                        fila = {"llave": key, "modo": modo, "n": n, "rep": rep,
+                                "proceso": rank, "segundos": secs}
+                        raw.append(fila)
+                        writer.writerow(fila)
+                        fcrudo.flush()  # si se interrumpe, lo medido no se pierde
+                        print(f"[{done}/{pendientes}] llave={key} modo={modo} N={n} rep={rep} "
                               f"proceso={rank} {secs:.3f}s", flush=True)
-
-    with open(os.path.join(args.out, "crudo.csv"), "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["llave", "modo", "n", "rep", "proceso", "segundos"])
-        w.writeheader()
-        w.writerows(raw)
 
     summary = []
     for key in args.keys:
