@@ -1,10 +1,18 @@
+#define _DEFAULT_SOURCE // getifaddrs con -std=c11
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <limits.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <mpi.h>
 #include "des_crypto.h"
+
+// texto "host (ip)" que identifica la maquina de cada proceso
+#define NODE_LEN (MPI_MAX_PROCESSOR_NAME + INET_ADDRSTRLEN + 4)
 
 // cada cuantas llaves se revisa el aviso de los demas procesos
 #ifndef TEST_EVERY
@@ -67,6 +75,34 @@ static int read_cipher(const char *path, char **out){
   return (int)len;
 }
 
+
+// IPv4 de la red fisica: salta loopback y las interfaces virtuales de Docker
+static void local_ip(char *out, size_t size){
+  snprintf(out, size, "sin IP");
+  struct ifaddrs *list;
+  if(getifaddrs(&list) != 0)
+    return;
+  for(struct ifaddrs *it = list; it != NULL; it = it->ifa_next){
+    if(it->ifa_addr == NULL || it->ifa_addr->sa_family != AF_INET)
+      continue;
+    if((it->ifa_flags & IFF_LOOPBACK) || strncmp(it->ifa_name, "docker", 6) == 0
+       || strncmp(it->ifa_name, "br-", 3) == 0 || strncmp(it->ifa_name, "veth", 4) == 0)
+      continue;
+    inet_ntop(AF_INET, &((struct sockaddr_in *)it->ifa_addr)->sin_addr, out, size);
+    break;
+  }
+  freeifaddrs(list);
+}
+
+// arma "host (ip)" para este proceso
+static void node_name(char out[NODE_LEN]){
+  char host[MPI_MAX_PROCESSOR_NAME];
+  char ip[INET_ADDRSTRLEN];
+  int host_len;
+  MPI_Get_processor_name(host, &host_len);
+  local_ip(ip, sizeof ip);
+  snprintf(out, NODE_LEN, "%s (%s)", host, ip);
+}
 
 int main(int argc, char *argv[]){
   int N, id;
@@ -131,7 +167,26 @@ int main(int argc, char *argv[]){
     }
     step = 1;
   }
-  printf("Proceso %d: rango [%ld, %ld] paso %ld\n", id, mylower, myupper, step);
+  // el proceso 0 junta en que maquina corre cada proceso, para mostrar los nodos del cluster
+  char node[NODE_LEN];
+  node_name(node);
+  char *nodes = NULL;
+  if(id == 0){
+    nodes = malloc((size_t)N * NODE_LEN);
+    if(nodes == NULL){
+      fprintf(stderr, "Proceso 0: sin memoria.\n");
+      MPI_Abort(comm, EXIT_FAILURE);
+    }
+  }
+  MPI_Gather(node, NODE_LEN, MPI_CHAR, nodes, NODE_LEN, MPI_CHAR, 0, comm);
+  if(id == 0){
+    printf("Nodos participantes (%d procesos):\n", N);
+    for(int p = 0; p < N; p++)
+      printf("  proceso %d -> %s\n", p, nodes + (size_t)p * NODE_LEN);
+    fflush(stdout);
+  }
+
+  printf("Proceso %d en %s: rango [%ld, %ld] paso %ld\n", id, node, mylower, myupper, step);
 
   MPI_Irecv(&received, 1, MPI_LONG, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &req);
 
@@ -149,7 +204,7 @@ int main(int argc, char *argv[]){
 
     if(tryKey(i, cipher, ciphlen)){
       found = i;
-      printf("Proceso %d encontro la llave\n", id);
+      printf("Proceso %d en %s encontro la llave\n", id, node);
       for(int node=0; node<N; node++){
         MPI_Send(&found, 1, MPI_LONG, node, 0, comm);
       }
@@ -174,7 +229,8 @@ int main(int argc, char *argv[]){
       decrypt(best.key, cipher, ciphlen);
       size_t plain_len = ciphlen;
       des_pkcs7_unpad((unsigned char *)cipher, ciphlen, &plain_len);
-      printf("Llave = %ld\n\n", best.key);
+      printf("Llave = %ld, encontrada por el proceso %d en %s\n\n",
+             best.key, best.rank, nodes + (size_t)best.rank * NODE_LEN);
       fwrite(cipher, 1, plain_len, stdout);
       printf("\n");
     }else{
@@ -185,6 +241,7 @@ int main(int argc, char *argv[]){
     printf("RESULTADO,%d,%ld,%d,%.6f\n", N, best.key, best.rank, elapsed);
   }
 
+  free(nodes);
   free(cipher);
   free(temp);
   MPI_Finalize();

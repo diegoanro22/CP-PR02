@@ -1,0 +1,5 @@
+# Copiar como cluster_hosts y poner las IPs que el router asigno a cada maquina.
+# slots = procesos MPI en esa maquina; max_slots evita poner mas procesos que nucleos.
+# El maestro va primero: ahi corren los primeros procesos (incluido el proceso 0).
+192.168.1.10 slots=4 max_slots=4
+192.168.1.11 slots=8 max_slots=8

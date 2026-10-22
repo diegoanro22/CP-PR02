@@ -10,6 +10,9 @@ Proyecto 2 de Computación Paralela (Universidad del Valle de Guatemala). Dado u
 | `Makefile` | Compila `bruteforce` y las utilidades de `des/` |
 | `des/` | Módulo de cifrado DES (`des_crypto.c`), utilidades `encrypt_file` y `decrypt_file`, pruebas y el texto de 350 palabras |
 | `bench/` | `bench.py` (mediciones), `plot.py` (gráficas) y `resultados/` (datos y gráficas de las mediciones) |
+| `Dockerfile`, `docker-entrypoint.sh` | Imagen del clúster de la Parte 2 (sección 6) |
+| `CLUSTER.md` | Guía para que cada integrante levante su nodo del clúster |
+| `cluster_hosts.example` | Hostfile de ejemplo para el clúster |
 | `docs/diagramas/` | Diagramas de `tryKey`, `memcpy`, `strstr`, reparto de llaves y flujo MPI |
 
 ## 1. Preparar el entorno
@@ -110,7 +113,41 @@ python3 bench/bench.py --upper 65536 --keys 30000 32769 --procs 1 2 3 \
 
 `bench.py` no necesita matplotlib; `plot.py` sí. Los datos y gráficas de las mediciones del informe están en `bench/resultados/`.
 
-## 6. Problemas frecuentes
+## 6. Clúster con Docker (Parte 2)
+
+La guía paso a paso para todo el equipo (firewall, llaves SSH, hostfile y problemas frecuentes) está en [CLUSTER.md](CLUSTER.md).
+
+Todos los integrantes construyen **la misma imagen**: si las versiones de OpenMPI no coinciden entre máquinas, `mpirun` falla o se cuelga.
+
+```bash
+docker build -t mpi-cluster-image .
+docker run -it --network host --name mpi_node mpi-cluster-image
+```
+
+La imagen ya trae el programa compilado en `/proyecto`, levanta SSH al arrancar y permite correr MPI como root. El SSH del contenedor escucha en el **puerto 2222** (no 22, que con `--network host` puede estar ocupado por el SSH del sistema), y el cliente ya está configurado para usarlo.
+
+**Paso A, llaves SSH.** En el contenedor del maestro:
+
+```bash
+ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+cat ~/.ssh/id_rsa.pub     # copiar esta línea al ~/.ssh/authorized_keys de cada worker
+ssh 192.168.1.11 hostname # desde el maestro: debe responder sin pedir contraseña
+```
+
+**Paso B, ataque distribuido.** Solo el maestro necesita el archivo cifrado (el proceso 0 lo lee y lo reparte). Copiarlo con `docker cp cifrado.des mpi_node:/proyecto/`, crear `cluster_hosts` a partir de `cluster_hosts.example` y correr, cambiando la subred por la del router:
+
+```bash
+mpirun --hostfile cluster_hosts \
+       --mca btl_tcp_if_include 192.168.1.0/24 --mca oob_tcp_if_include 192.168.1.0/24 \
+       -np <TOTAL_SLOTS> ./bruteforce cifrado.des "<frase>" <upper> intercalado
+```
+
+La salida empieza con la lista de nodos participantes (`proceso N -> host (IP)`) y termina indicando qué proceso y qué máquina encontró la llave.
+
+En Windows y macOS hace falta Docker Desktop 4.34 o más reciente con *Enable Host Networking* activado, y una regla de firewall que permita conexiones entrantes en la red privada (el puerto 2222 y los puertos dinámicos de OpenMPI).
+
+## 7. Problemas frecuentes
 
 | Mensaje | Causa y solución |
 |---|---|

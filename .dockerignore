@@ -1,0 +1,14 @@
+# Binarios y objetos compilados fuera del contenedor (se recompilan adentro)
+bruteforce
+des/encrypt_file
+des/decrypt_file
+des/test_des_crypto
+**/*.o
+
+# No hacen falta en la imagen
+.git
+*.pdf
+docs
+bench/resultados
+*.des
+des/a.txt
