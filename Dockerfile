@@ -31,6 +31,9 @@ COPY . .
 RUN make clean && make BACKEND=openssl
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Git en Windows convierte los .sh a CRLF y el '#!/bin/sh' deja de funcionar
+# ("exec ...docker-entrypoint.sh: no such file or directory"): aqui se quita el \r.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+    && chmod +x /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["/bin/bash"]
